@@ -95,26 +95,27 @@ class data:
         
 
 
-        
 
-# ff = data.intertidal(ee.Filter.date('2021-01-01', '2022-01-01'))
-# ff.intertidal.scale()
-import pandas as pd
-region = 'bangladesh'
-df = pd.read_csv(r"D:\bathydem\bathyDEM\use-cases\bbox.csv")
-bb = df[df.name == region]
-xx, XX = bb.minx.values[0],bb.maxx.values[0]
-yy, YY = bb.miny.values[0],bb.maxy.values[0]
-bounds = ee.Geometry.Rectangle([
-    bb.minx.values[0],bb.miny.values[0],
-    bb.maxx.values[0],bb.maxy.values[0]])
+# import pandas as pd
+# region = 'bangladesh'
+# df = pd.read_csv(r"D:\bathydem\bathyDEM\use-cases\bbox.csv")
+# bb = df[df.name == region]
+# xx, XX = bb.minx.values[0],bb.maxx.values[0]
+# yy, YY = bb.miny.values[0],bb.maxy.values[0]
+# bounds = ee.Geometry.Rectangle([
+#     bb.minx.values[0],bb.miny.values[0],
+#     bb.maxx.values[0],bb.maxy.values[0]])
 
-bathydem = data()
-img = bathydem.intertidal(
-    timeperiod = ee.Filter.date('2021-01-01', '2022-01-01'),
-    bounds = bounds,
-    scale = 1000)
+# bathydem = data()
+# img = bathydem.intertidal(
+#     timeperiod = ee.Filter.date('2021-01-01', '2022-01-01'),
+#     bounds = bounds,
+#     scale = 1000)
 
-import geemap
-Map = geemap.Map(center=((yy+YY)/2, (xx+XX)/2), zoom=7);
-Map.addLayer(img)
+# import geemap
+# Map = geemap.Map(center=((yy+YY)/2, (xx+XX)/2), zoom=7);
+# Map.addLayer(img)
+
+# img.getDownloadURL({'name': f'test_{region}', 'scale': 1000,
+#                     'region': bounds, 'filePerBand': False,
+#                     'format': 'GEO_TIFF'})
