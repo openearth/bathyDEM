@@ -1,20 +1,17 @@
-import ee
+import ee, requests
+ee.Initialize()
 from eepackages import tiler, assets
 import hydrafloods as hf
 
-
-ee.Initialize()
+ee.Authenticate(auth_mode='gcloud')
 
 class data:
     '''
-    The getdata class allows a user to get bathymetry dataset for a given time period.
-    
-    For inter-tidal data, inundation frequency is derived using the otsu thresholding method on either NDWI or MNDWI images.
-
-    For sub-tidal data, the bathymetry proxy is currently derived reflectance values that undergoes a dark pixel correction. Therefore, the values are not always between 0 - 1 for all images. Sub-tidal data is currently 
-    acquired using the sdb (compute_inverse_depth method) from eepackages/bathymetry (Donchyts, 2018)
-
-    
+    The Data class allows a user to get bathymetry dataset for a given time period.
+    For intertidal data, inundation frequency is derived using the Otsu thresholding method on either NDWI or MNDWI images.
+    For subtidal data, the bathymetry proxy is currently derived from reflectance values that undergo a dark pixel correction. 
+    Therefore, the values are not always between 0 - 1 for all images. Sub-tidal data is currently acquired using the sdb 
+    (compute_inverse_depth method) from eepackages/bathymetry (Donchyts, 2018)
     '''
 
     def __init__(self):
@@ -23,10 +20,36 @@ class data:
         '''
         self.__version__ = "bathydem v0.1"
     
-    def export(self):
-        # should have function to export individual images if possible
-        pass
+
+    def exportAsTiles(
+            image, 
+            bounds,
+            zoomlevel = 11):
+        tiles = tiler.get_tiles_for_geometry(
+            bounds, zoomlevel)
         
+        return tiles
+
+    @staticmethod
+    def ndwi(image):
+        return image.addBands(
+            image.normalizedDifference(['green', 'nir']).select('nd').rename('ndwi'))
+        
+    @staticmethod
+    def mndwi(image):
+        return image.addBands(
+            image.normalizedDifference(['green', 'swir']).select('nd').rename('mndwi'))
+    
+    @staticmethod
+    def apply_otsu(image, bounds, waterindex):
+        return hf.edge_otsu(
+            image,
+            region=bounds,
+            band=waterindex,
+            thresh_no_data=-0.2,
+            invert=True
+        )
+
     def intertidal(
             self,
             timeperiod,
@@ -35,11 +58,16 @@ class data:
             missions: list = ['L4', 'L5', 'L8', 'L9', 'S2'],
             waterindex: str = 'mndwi',
             cloudMask: bool = True,
+            applyCloudMask: bool = False,
             clip: bool = True,
             filterMaskedFraction: float = 0.9,
             maxPixels: int = 999999999999,
             ):
         
+        self.scale = scale
+        self.bounds = bounds
+        self.type = 'intertidal'
+
         self.images = assets.getMostlyCleanImages(
             assets.getImages(
             bounds,
@@ -58,64 +86,28 @@ class data:
             'qualityBand': 'blue'
             })
         
-        def ndwi(image: ee.Image):
-            return image.addBands(
-                image.normalizedDifference(['green', 'nir']).select('nd').rename('ndwi'))
-        
-        def mndwi(image: ee.Image):
-            return image.addBands(
-                image.normalizedDifference(['green', 'swir']).select('nd').rename('mndwi'))
-        
-        def applyOtsu(image, bounds, waterindex):
-            return hf.edge_otsu(
-                image,
-                region = bounds,
-                band = waterindex,
-                thresh_no_data = -0.2,
-                # edge_buffer=300,
-                invert = True
-                )
-            
+
         if clip == True:
             self.images = self.images.map(lambda f: f.clip(bounds))
 
         if waterindex == 'ndwi':
-            self.waterindex = self.images.map(ndwi)
+            self.waterindex = self.images.map(self.ndwi)
         elif waterindex == 'mndwi':
-            self.waterindex = self.images.map(mndwi)
+            self.waterindex = self.images.map(self.mndwi)
 
+        # test mask
+        if applyCloudMask:
+                
+            self.waterindex = self.waterindex.map(
+                lambda f: f.updateMask(f.select('cloud'))
+            )
+        
         self.otsu = self.waterindex.map(
-            lambda f: applyOtsu(f, bounds, waterindex))
+            lambda f: self.apply_otsu(f, bounds, waterindex))
 
         sum = self.otsu.sum()
         count = self.otsu.count()
-        frequency = sum.divide(count)
+        frequency = sum.divide(count).unmask()
 
         return frequency
-        
 
-
-
-# import pandas as pd
-# region = 'bangladesh'
-# df = pd.read_csv(r"D:\bathydem\bathyDEM\use-cases\bbox.csv")
-# bb = df[df.name == region]
-# xx, XX = bb.minx.values[0],bb.maxx.values[0]
-# yy, YY = bb.miny.values[0],bb.maxy.values[0]
-# bounds = ee.Geometry.Rectangle([
-#     bb.minx.values[0],bb.miny.values[0],
-#     bb.maxx.values[0],bb.maxy.values[0]])
-
-# bathydem = data()
-# img = bathydem.intertidal(
-#     timeperiod = ee.Filter.date('2021-01-01', '2022-01-01'),
-#     bounds = bounds,
-#     scale = 1000)
-
-# import geemap
-# Map = geemap.Map(center=((yy+YY)/2, (xx+XX)/2), zoom=7);
-# Map.addLayer(img)
-
-# img.getDownloadURL({'name': f'test_{region}', 'scale': 1000,
-#                     'region': bounds, 'filePerBand': False,
-#                     'format': 'GEO_TIFF'})

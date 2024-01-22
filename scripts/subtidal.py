@@ -1,86 +1,125 @@
-project_name = 'tuvalu'
-
-## bbox
-df = pd.read_csv('..//use-cases//bbox.csv')
-coords = df[df.name == 'project_name']
-
-yy, YY = coords.miny.values[0], coords.maxy.values[0]
-xx, XX = coords.maxy.values[0], coords.maxx.values[0]
-
-#import geopandas as gpd
-#from shapely.geometry import Polygon
-import datetime
+from eepackages.applications import bathymetry
+from urllib import request
 import pandas as pd
-#polygeom = Polygon([(xx,yy), (xx,YY), (XX,YY), (XX,yy), (xx,yy)])
-#poly = gpd.GeoDataFrame(index=[0], crs='epsg:4326', geometry=[polygeom])
+import ee, os
+from bathydem import data
 
-import geemap, ee
+ee.Initialize()
 
-from eepackages.applications.bathymetry import Bathymetry
-from eepackages import tiler
-from dateutil.relativedelta import *
+region = 'tuvalu'
+composite = 12  # in months
+window = 3      # in months
 
-#%%
-Map = geemap.Map(center=((yy+YY)/2, (xx+XX)/2), zoom=11)
+opath = os.path.join(
+    r'D:\bathydem',
+    region,
+    'data', 'subtidal')
+if not os.path.exists(opath):
+    os.makedirs(opath)
 
-# make rolling mean of 3 months for every month
-start = '2018-10-01' # October 2018, start of ICE-SAT2
-end = '2019-01-01' #'2022-07-01'
+##########################################################################
+df = pd.read_csv(r"..\use-cases\bbox.csv")
+bb = df[df.name == region]
 
-interval = 1 # composite interval [months]
-length = 24 # composite length [months]
+xx, XX = bb.minx.values[0], bb.maxx.values[0]
+yy, YY = bb.miny.values[0], bb.maxy.values[0]
+bounds = ee.Geometry.Rectangle([
+    xx, yy, XX, YY])
 
-# image timeframes
-def startstopdate(start_date, stop_date, compo_int, compo_len):
-    sdate = datetime.datetime.strptime(start_date,'%Y-%m-%d')
-    edate = datetime.datetime.strptime(stop_date,'%Y-%m-%d')
-    window_length = int((edate.year-sdate.year)*12+(edate.month-sdate.month))
-    startrangedates = pd.date_range(start_date, freq='%sMS'%(compo_int), periods=int((window_length/compo_int))).strftime('%Y-%m-%d').tolist()
-    endrangedates = pd.date_range((sdate+relativedelta(months=compo_len)).strftime('%Y-%m-%d'), freq='%sMS'%(compo_int), periods=int((window_length/compo_int))).strftime('%Y-%m-%d').tolist()
-    return startrangedates, endrangedates
+import geemap
+Map = geemap.Map(center=((yy+YY)/2, (xx+XX)/2), zoom=10);
+Map.addLayer(bounds); Map
 
-tstart, tend = startstopdate(
-    start, end, interval, length)
+ts = '2020-07-01'
+te = '2022-10-01'
 
-# %%
-sdb = Bathymetry()
-scale = 30
-image_list = []
-bounds = ee.Geometry.Polygon([(xx,yy), (xx,YY), (XX,YY), (XX,yy), (xx,yy)])
+i = ee.Date(ts)
 
-img = sdb.compute_inverse_depth(
-    bounds=bounds,
-    start=tstart[1],
-    stop=tend[1],
-    scale=scale,
-    missions=['S2', 'L8'],
-    filter_masked=True,
-    skip_neighborhood_search=False,
-)#.clip(bounds)
-
-
-'''
-for ts, te in zip(tstart, tend):
-    image = sdb.compute_inverse_depth(
-        bounds=bounds,
-        start=ts,
-        stop=te,
-        scale=scale,
-        missions=['S2','L9', 'L8'],
-        filter_masked=True,
-        skip_neighborhood_search=False,
-    )#.clip(bounds)
+def exporttiles(tile, image):
+    tx = int(float(ee.Feature(tile).get('tx').getInfo()))
+    ty = int(float(ee.Feature(tile).get('ty').getInfo()))
+    zoom = int(float(ee.Feature(tile).get('zoom').getInfo()))
     
-    image_list.append(image)
+    if os.path.exists(
+        os.path.join(
+        opath, 
+        f'{region}-bathydem-subtidal-{tx}x-{ty}y-{zoom}z-{istr}.tiff'
+    )):
+        return
+    else:
+        url = image.clip(tile).getDownloadURL({
+            'scale': scale,
+            'region': ee.Feature(tile).geometry(),
+            'filePerBand': False,
+            'format': 'GEO_TIFF'        
+        })
+        try:
+            r = request.urlretrieve(
+                url, 
+                os.path.join(
+                opath,
+                f'{region}-bathydem-subtidal-{tx}x-{ty}y-{zoom}z-{istr}.tiff')
+            )   
+            return
+        except:
+            print(f'error for {istr}')
+            return    
+
+def exportimg(image):
+    if os.path.exists(
+        os.path.join(
+        opath,
+        f'{region}-bathydem-subtidal-{istr}.tiff'
+        )
+    ):
+        return
     
-    datename = f'{ts}_{te}'
-    print(datename)
-    print(image.getDownloadURL({
-    'name': f'{project_name}_{datename}',
-    'scale': scale,
-    'region': bounds,
-    'filePerBand': False
-    }))
-    print(image)
-'''
-# %%
+    else:
+        url = image.getDownloadURL({
+            'scale': scale,
+            'region': bounds,
+            'filePerBand': False,
+            'format': 'GEO_TIFF'        
+        })
+        try:
+            r = request.urlretrieve(
+                url, 
+                os.path.join(
+                opath,
+                f'{region}-bathydem-subtidal-{istr}.tiff')
+            )   
+            return
+        
+        except:
+            print(f'error for {istr}')
+            return
+
+sdb = bathymetry.Bathymetry()
+scale = 10
+bathydem = data.data()
+
+#without tiling
+while i.format('YYYY-MM-dd').getInfo() != te:
+    
+    istr = (i.format('YYYY-MM-dd').getInfo())
+    print(istr)
+    img = sdb.compute_inverse_depth(
+        bounds = bounds,
+        start = istr,
+        stop = i.advance(composite, 'month'),
+        scale = scale,
+        missions = ['S2', 'L9', 'L8'],
+        filter_masked = True,
+        skip_neighborhood_search = False,
+    ).clip(bounds)
+    
+    tiles = bathydem.exportAsTiles(bounds, 12)
+    tsize = tiles.size().getInfo()
+
+    for t in range(tsize):
+        tile = tiles.toList(tsize).get(t)
+        exporttiles(tile, img)
+    # print(img.bandNames().getInfo())
+    # exportimg(img)
+    
+    i = i.advance(window, 'month')
